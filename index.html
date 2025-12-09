@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heavy Grooving: Christmas @ Clyde Way</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // --- Global Firebase Setup ---
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        
+        // Expose Firebase objects and functions to the global scope for use in the main script block
+        window.db = db;
+        window.auth = auth;
+        window.doc = doc;
+        window.onSnapshot = onSnapshot;
+        window.setDoc = setDoc;
+
+        async function authenticateAndInitialize() {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                const userId = auth.currentUser?.uid || crypto.randomUUID();
+                window.userId = userId;
+                window.isAuthReady = true;
+                
+                // Once authenticated, start the application logic (data loading/listening)
+                if (typeof window.startApp === 'function') {
+                    window.startApp();
+                }
+
+            } catch (error) {
+                console.error("Firebase Auth Error:", error);
+            }
+        }
+        authenticateAndInitialize();
+    </script>
+    
+    <!-- Chosen Palette: "Festive Warmth" -->
+    <!-- Background: #fafaf9 (Warm Stone/White) -->
+    <!-- Primary Red: #b91c1c (Christmas Red) -->
+    <!-- Secondary Green: #15803d (Pine Green) -->
+    <!-- Accent Gold: #d97706 (Festive Sparkle) -->
+    <!-- Text: #1c1917 (Warm Black) -->
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        festive: {
+                            bg: '#fafaf9',
+                            red: '#b91c1c',
+                            green: '#15803d',
+                            gold: '#d97706',
+                            text: '#1c1917'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Helvetica', 'Arial', 'sans-serif'],
+                        serif: ['Georgia', 'serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            background-color: #fafaf9;
+            color: #1c1917;
+        }
+
+        /* Chart Container Strict Styling */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+
+        .nav-link:hover {
+            color: #b91c1c;
+            text-decoration: underline;
+            text-decoration-thickness: 2px;
+            text-underline-offset: 4px;
+        }
+        
+        .card-shadow {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        /* Spinner style */
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-top: 4px solid #b91c1c;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+
+    <!-- Application Structure Plan:
+         1. Hero Section: Sets the "Heavy Grooving" tone immediately with key logistics (Date/Time/Location).
+         2. The Vibe (Analysis): Breaks down "What to Expect" into visual categories (Music, Games, Chat).
+         3. Potluck Command Center (Data Core):
+            - Visualizes the food balance to prevent "10 desserts and no sides."
+            - Interactive Chart: Updates based on user input, sourced from Firestore.
+         4. RSVP Interaction: The primary action item. Users input their data, which updates Firestore.
+         5. Footer: Contact info and final reminders (Chairs).
+    -->
+
+    <!-- Visualization & Content Choices:
+         1. "The Feast Balance" (Doughnut Chart):
+            - Goal: Inform guests of the current food distribution so they bring what is needed.
+            - Justification: A part-to-whole comparison is best for potlucks.
+            - Interaction: Updates immediately upon RSVP submission and is persisted via Firestore.
+         2. "Groove Metrics" (Radar Chart):
+            - Goal: Visualize the qualitative "What to Expect" section (Music, Games, Chat).
+            - Justification: Adds fun and visual interest to the text description.
+         3. Progress Bar: Tracks the RSVP deadline (Dec 20th).
+    -->
+
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+
+</head>
+<body class="flex flex-col min-h-screen font-sans">
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="flex flex-col items-center">
+            <div class="spinner mb-3"></div>
+            <p class="text-gray-700">Loading festive data...</p>
+        </div>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="sticky top-0 z-50 bg-white/95 backdrop-blur shadow-sm border-b border-gray-200">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <span class="text-2xl mr-2">🎄</span>
+                    <span class="font-serif font-bold text-xl text-festive-red tracking-tight">The Christmas Groove</span>
+                </div>
+                <div class="hidden md:flex space-x-8">
+                    <button onclick="scrollToId('details')" class="nav-link font-medium transition-colors">Details</button>
+                    <button onclick="scrollToId('potluck')" class="nav-link font-medium transition-colors">The Feast</button>
+                    <button onclick="scrollToId('rsvp')" class="bg-festive-green text-white px-4 py-2 rounded-full hover:bg-green-800 transition-colors font-bold shadow-md">RSVP Now</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="bg-festive-bg border-b border-stone-200 pt-16 pb-12">
+        <div class="max-w-4xl mx-auto px-4 text-center">
+            <span class="inline-block py-1 px-3 rounded-full bg-festive-red/10 text-festive-red text-sm font-bold mb-4 tracking-wide uppercase">Save The Date</span>
+            <h1 class="text-4xl md:text-6xl font-serif font-extrabold text-gray-900 mb-6 leading-tight">
+                Prepare for <span class="text-festive-red decoration-festive-gold underline decoration-4 underline-offset-4">Heavy Grooving!</span>
+            </h1>
+            <p class="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
+                Dear Neighbors & Friends, get ready to celebrate Christmas! Ed & Stella are hosting a House Party to connect, share food, and enjoy the afternoon.
+            </p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto mt-8">
+                <div class="bg-white p-4 rounded-xl border border-stone-200 card-shadow">
+                    <div class="text-2xl mb-1">📅</div>
+                    <div class="font-bold text-lg">Christmas Day</div>
+                    <div class="text-sm text-gray-500">Dec 25th</div>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-stone-200 card-shadow">
+                    <div class="text-2xl mb-1">⏰</div>
+                    <div class="font-bold text-lg">4:00 PM</div>
+                    <div class="text-sm text-gray-500">Until the grooving stops</div>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-stone-200 card-shadow">
+                    <div class="text-2xl mb-1">📍</div>
+                    <div class="font-bold text-lg">14 Clyde Way</div>
+                    <div class="text-sm text-gray-500">Edgehill Park</div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-grow">
+
+        <!-- Section 1: What to Expect (Qualitative Analysis) -->
+        <section id="details" class="py-16 bg-white">
+            <div class="max-w-5xl mx-auto px-6">
+                <div class="mb-10 text-center md:text-left">
+                    <h2 class="text-3xl font-serif font-bold mb-4 text-festive-green">What to Expect</h2>
+                    <p class="text-gray-600 max-w-3xl leading-relaxed">
+                        We are planning a casual, low-key gathering. We've analyzed the key components of a successful afternoon to ensure maximum enjoyment. Use the chart below to visualize the "Vibe Mix."
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+                    <!-- Text Content -->
+                    <div class="space-y-6">
+                        <div class="flex items-start">
+                            <div class="flex-shrink-0 bg-festive-red/10 p-3 rounded-lg mr-4">
+                                <span class="text-2xl">🎵</span>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-lg">Music & Grooves</h3>
+                                <p class="text-gray-600 text-sm">A curated playlist to set the holiday mood. Expect "heavy grooving"!</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start">
+                            <div class="flex-shrink-0 bg-festive-gold/10 p-3 rounded-lg mr-4">
+                                <span class="text-2xl">🎲</span>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-lg">Games & Fun</h3>
+                                <p class="text-gray-600 text-sm">Lawn games and indoor activities. Simple, fun, and competitive enough to be interesting.</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start">
+                            <div class="flex-shrink-0 bg-festive-green/10 p-3 rounded-lg mr-4">
+                                <span class="text-2xl">💬</span>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-lg">Community Chat</h3>
+                                <p class="text-gray-600 text-sm">Plenty of time to connect with neighbors and strengthen our community bonds.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Visualization: Radar Chart for Vibe -->
+                    <div class="bg-stone-50 p-6 rounded-2xl border border-stone-100">
+                        <h4 class="text-center font-bold text-gray-500 text-sm mb-4 uppercase tracking-widest">Vibe Metrics</h4>
+                        <div class="chart-container">
+                            <canvas id="vibeChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Potluck Logistics (Quantitative Data) -->
+        <section id="potluck" class="py-16 bg-stone-100 border-t border-stone-200">
+            <div class="max-w-6xl mx-auto px-6">
+                <div class="text-center mb-12">
+                    <h2 class="text-3xl font-serif font-bold mb-4 text-festive-red">The Feast: Potluck Monitor</h2>
+                    <p class="text-gray-600 max-w-2xl mx-auto">
+                        To make food easy and fun, we are doing a potluck! Ed & Stella are providing the <span class="font-bold text-gray-800">Main Items & Cutlery</span>. We need you to balance the table. Check the chart below to see what's missing!
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    
+                    <!-- Chart Column -->
+                    <div class="lg:col-span-2 bg-white p-8 rounded-2xl shadow-sm border border-stone-200">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="font-bold text-xl">Current Menu Distribution (<span id="totalGuestsDisplay">8</span> Guests)</h3>
+                            <span class="text-xs bg-festive-green text-white px-2 py-1 rounded">Live Updates</span>
+                        </div>
+                        
+                        <div class="chart-container">
+                            <canvas id="foodChart"></canvas>
+                        </div>
+
+                        <div id="food-alert" class="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-sm font-medium text-center">
+                            💡 Insight: We have plenty of Mains. Please consider bringing a Salad or Dessert!
+                        </div>
+                    </div>
+
+                    <!-- Logistics Checklist Column -->
+                    <div class="space-y-6">
+                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-stone-200">
+                            <h3 class="font-bold text-lg mb-4 border-b pb-2">Provided by Host</h3>
+                            <ul class="space-y-3">
+                                <li class="flex items-center text-gray-700">
+                                    <span class="text-festive-green mr-2">✔</span> Main Course
+                                </li>
+                                <li class="flex items-center text-gray-700">
+                                    <span class="text-festive-green mr-2">✔</span> Cutlery & Plates
+                                </li>
+                                <li class="flex items-center text-gray-700">
+                                    <span class="text-festive-green mr-2">✔</span> Music
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div class="bg-festive-red p-6 rounded-2xl shadow-sm text-white">
+                            <h3 class="font-bold text-lg mb-4 border-white/20 border-b pb-2">Guest Checklist</h3>
+                            <ul class="space-y-3">
+                                <li class="flex items-center">
+                                    <span class="mr-2">🥘</span> A Dish to Share
+                                </li>
+                                <li class="flex items-center text-red-100 text-sm pl-8">
+                                    (Side, Salad, or Dessert)
+                                </li>
+                                <li class="flex items-center">
+                                    <span class="mr-2">🍷</span> Your Preferred Drinks
+                                </li>
+                                <li class="flex items-center">
+                                    <span class="mr-2">🪑</span> Folding Chair (Optional)
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 3: RSVP (Interaction) -->
+        <section id="rsvp" class="py-16 bg-white">
+            <div class="max-w-3xl mx-auto px-6">
+                <div class="bg-white rounded-2xl border-2 border-festive-gold/30 p-8 md:p-12 shadow-lg relative overflow-hidden">
+                    <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-festive-gold/10 rounded-full blur-xl"></div>
+                    
+                    <h2 class="text-3xl font-serif font-bold text-center mb-2">RSVP Today</h2>
+                    <p class="text-center text-gray-600 mb-8">
+                        Please reply by <span class="font-bold text-festive-red">December 20th</span>.
+                    </p>
+
+                    <!-- Form -->
+                    <form id="rsvpForm" class="space-y-6 relative z-10">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-2">Household Name</label>
+                                <input type="text" id="householdName" required class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-festive-green focus:ring-2 focus:ring-festive-green/20 outline-none transition" placeholder="e.g. The Millers">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-2">Headcount</label>
+                                <input type="number" id="guestCount" min="1" max="10" required class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-festive-green focus:ring-2 focus:ring-festive-green/20 outline-none transition" value="1">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">I'm bringing...</label>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="dish" value="sides" class="peer sr-only">
+                                    <div class="text-center p-3 rounded-lg border border-gray-200 peer-checked:bg-festive-gold peer-checked:text-white peer-checked:border-festive-gold hover:bg-gray-50 transition">
+                                        🥗 Side
+                                    </div>
+                                </label>
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="dish" value="salads" class="peer sr-only">
+                                    <div class="text-center p-3 rounded-lg border border-gray-200 peer-checked:bg-festive-green peer-checked:text-white peer-checked:border-festive-green hover:bg-gray-50 transition">
+                                        🥬 Salad
+                                    </div>
+                                </label>
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="dish" value="dessert" class="peer sr-only">
+                                    <div class="text-center p-3 rounded-lg border border-gray-200 peer-checked:bg-festive-red peer-checked:text-white peer-checked:border-festive-red hover:bg-gray-50 transition">
+                                        🍰 Dessert
+                                    </div>
+                                </label>
+                                <label class="cursor-pointer">
+                                    <input type="radio" name="dish" value="drinks" class="peer sr-only">
+                                    <div class="text-center p-3 rounded-lg border border-gray-200 peer-checked:bg-gray-800 peer-checked:text-white peer-checked:border-gray-800 hover:bg-gray-50 transition">
+                                        🍷 Drinks
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full bg-festive-red text-white font-bold py-4 rounded-xl hover:bg-red-800 transform hover:-translate-y-1 transition duration-200 shadow-lg text-lg">
+                            Confirm Attendance
+                        </button>
+                    </form>
+
+                    <!-- Success Message -->
+                    <div id="successMsg" class="hidden text-center py-12">
+                        <div class="text-5xl mb-4">🎉</div>
+                        <h3 class="text-2xl font-bold text-gray-800">You're Confirmed!</h3>
+                        <p class="text-gray-600 mt-2">Thanks for RSVPing. The Potluck Monitor has been updated with your contribution.</p>
+                        <button onclick="resetForm()" class="mt-6 text-festive-red underline font-medium">Add another guest</button>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-900 text-gray-400 py-12 border-t border-gray-800">
+        <div class="max-w-4xl mx-auto px-6 text-center">
+            <h4 class="text-white font-serif font-bold text-xl mb-4">Ed & Stella</h4>
+            <p class="mb-2">14 Clyde Way, Edgehill Park</p>
+            <p class="text-sm">Questions? Reply to the original email.</p>
+            <p class="text-xs text-gray-600 mt-4">User ID: <span id="currentUserId">Loading...</span></p>
+            <div class="mt-8 pt-8 border-t border-gray-800 text-xs text-gray-600">
+                Created for the Heavy Grooving Christmas Party
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // Default State (Initial seed data)
+        const DEFAULT_STATE = {
+            foodCounts: {
+                mains: 5, // Host provided baseline
+                sides: 2,
+                salads: 1,
+                dessert: 1,
+                drinks: 2
+            },
+            totalGuests: 8, // Start with Hosts + a few confirmed
+            rsvps: {} // Store individual RSVPs by ID
+        };
+
+        // Current App State
+        let appState = JSON.parse(JSON.stringify(DEFAULT_STATE));
+
+        // Chart Instances
+        let foodChartInstance;
+        let vibeChartInstance;
+
+        // Firestore Path
+        const COLLECTION_NAME = 'christmas_party_rsvps';
+        const DOCUMENT_ID = 'current_status'; // Single document to hold aggregated state
+        
+        // --- Core Application Start ---
+        window.startApp = function() {
+            document.getElementById('loadingOverlay').classList.add('hidden');
+            document.getElementById('currentUserId').textContent = window.userId || 'N/A';
+            
+            initVibeChart(); // Vibe chart is static
+            initFoodChart(); // Food chart initializes empty, ready for data
+            setupForm();
+            startDataListener(); // Start listening for live data updates
+        }
+
+        // --- Firebase/Firestore Logic ---
+        function getStatusDocRef() {
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            const publicPath = `/artifacts/${appId}/public/data/${COLLECTION_NAME}/${DOCUMENT_ID}`;
+            return window.doc(window.db, publicPath);
+        }
+
+        function startDataListener() {
+            if (!window.db || !window.isAuthReady) return;
+            
+            const docRef = getStatusDocRef();
+            
+            // Use onSnapshot for real-time updates
+            window.onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    
+                    // Crucial: Use the persisted data, or the default if data is missing parts
+                    appState.foodCounts = data.foodCounts || DEFAULT_STATE.foodCounts;
+                    appState.totalGuests = data.totalGuests || DEFAULT_STATE.totalGuests;
+
+                } else {
+                    // Document doesn't exist, initialize it with default state
+                    console.log("Initializing Firestore document with default state.");
+                    window.setDoc(docRef, DEFAULT_STATE).catch(e => console.error("Error setting default doc:", e));
+                }
+                updateChartsAndUI();
+            }, (error) => {
+                console.error("Error fetching data:", error);
+            });
+        }
+
+        async function saveRsvpToFirestore(newRsvp) {
+            if (!window.db || !window.isAuthReady) return;
+
+            const statusDocRef = getStatusDocRef();
+            
+            // Atomically update the aggregated counts
+            const newCounts = { ...appState.foodCounts };
+            newCounts[newRsvp.dish] += 1;
+            const newTotalGuests = appState.totalGuests + newRsvp.headcount;
+
+            const updatePayload = {
+                foodCounts: newCounts,
+                totalGuests: newTotalGuests
+            };
+            
+            try {
+                await window.setDoc(statusDocRef, updatePayload, { merge: true });
+            } catch (error) {
+                console.error("Error updating Firestore:", error);
+                // Fallback: If network fails, update local state temporarily for user experience
+                appState.foodCounts = newCounts;
+                appState.totalGuests = newTotalGuests;
+                updateChartsAndUI(); 
+            }
+        }
+        
+        // --- UI Update Function ---
+        function updateChartsAndUI() {
+            if (foodChartInstance) {
+                foodChartInstance.data.datasets[0].data = Object.values(appState.foodCounts);
+                foodChartInstance.update();
+            }
+            document.getElementById('totalGuestsDisplay').textContent = appState.totalGuests;
+            updateInsight();
+        }
+
+        // --- Chart 1: The Potluck Monitor (Doughnut) ---
+        function initFoodChart() {
+            const ctx = document.getElementById('foodChart').getContext('2d');
+            
+            foodChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Mains (Host)', 'Sides', 'Salads', 'Desserts', 'Drinks'],
+                    datasets: [{
+                        data: Object.values(appState.foodCounts),
+                        backgroundColor: [
+                            '#e5e5e5', // Mains (Neutral gray to show it's "base")
+                            '#d97706', // Sides (Gold)
+                            '#15803d', // Salads (Green)
+                            '#b91c1c', // Desserts (Red)
+                            '#1f2937'  // Drinks (Dark)
+                        ],
+                        borderWidth: 2,
+                        borderColor: '#ffffff',
+                        hoverOffset: 10
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                padding: 20,
+                                font: {
+                                    family: "'Helvetica', 'Arial', sans-serif",
+                                    size: 12
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return ' ' + context.label + ': ' + context.raw + ' items';
+                                }
+                            }
+                        }
+                    },
+                    cutout: '60%'
+                }
+            });
+        }
+
+        // --- Chart 2: Vibe Metrics (Radar) ---
+        function initVibeChart() {
+            const ctx = document.getElementById('vibeChart').getContext('2d');
+            
+            vibeChartInstance = new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: ['Music Volume', 'Food Variety', 'Relaxation', 'Game Intensity', 'Chatting'],
+                    datasets: [{
+                        label: 'Projected Vibe',
+                        data: [8, 9, 7, 6, 10],
+                        fill: true,
+                        backgroundColor: 'rgba(185, 28, 28, 0.2)',
+                        borderColor: '#b91c1c',
+                        pointBackgroundColor: '#b91c1c',
+                        pointBorderColor: '#fff',
+                        pointHoverBackgroundColor: '#fff',
+                        pointHoverBorderColor: '#b91c1c'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    elements: {
+                        line: { borderWidth: 3 }
+                    },
+                    scales: {
+                        r: {
+                            angleLines: { display: false },
+                            suggestedMin: 0,
+                            suggestedMax: 10,
+                            ticks: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        // --- Interaction: RSVP Form ---
+        function setupForm() {
+            const form = document.getElementById('rsvpForm');
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+
+                // 1. Get Values
+                const guestCount = parseInt(document.getElementById('guestCount').value);
+                const householdName = document.getElementById('householdName').value.trim();
+                const dishTypeEl = document.querySelector('input[name="dish"]:checked');
+                
+                if(!dishTypeEl) {
+                    // Custom modal/message box instead of alert
+                    alert("Please select a dish category!");
+                    return;
+                }
+
+                const newRsvp = {
+                    headcount: guestCount,
+                    dish: dishTypeEl.value,
+                    household: householdName
+                };
+
+                // 2. Save Data (Triggers live listener update)
+                saveRsvpToFirestore(newRsvp);
+
+                // 3. Show Success
+                form.classList.add('hidden');
+                document.getElementById('successMsg').classList.remove('hidden');
+
+                // 4. Scroll up to see the chart change
+                document.getElementById('potluck').scrollIntoView({ behavior: 'smooth' });
+            });
+        }
+
+        function updateInsight() {
+            const alertBox = document.getElementById('food-alert');
+            
+            const counts = appState.foodCounts;
+            // Check if food type needs a boost
+            if(counts.dessert < 3 || counts.dessert < counts.salads + counts.sides - 2) {
+                alertBox.innerHTML = "🍭 We could use more Desserts to satisfy the sweet tooths!";
+                alertBox.className = "mt-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-800 text-sm font-medium text-center";
+            } else if (counts.salads < 2) {
+                alertBox.innerHTML = "🥬 We are running low on fresh Salads. A fresh crunch would be great!";
+                alertBox.className = "mt-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm font-medium text-center";
+            } else if (counts.sides < 3) {
+                alertBox.innerHTML = "🥔 We are running low on Sides. Potatoes or hot vegetable dishes would be great!";
+                alertBox.className = "mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-sm font-medium text-center";
+            } else {
+                alertBox.innerHTML = "✅ The menu is looking balanced! Thanks for your contribution.";
+                alertBox.className = "mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-sm font-medium text-center";
+            }
+        }
+
+        function resetForm() {
+            document.getElementById('rsvpForm').reset();
+            document.getElementById('guestCount').value = 1;
+            document.getElementById('rsvpForm').classList.remove('hidden');
+            document.getElementById('successMsg').classList.add('hidden');
+        }
+        
+        function scrollToId(id) {
+            document.getElementById(id).scrollIntoView({ behavior: 'smooth' });
+        }
+
+    </script>
+</body>
+</html>
