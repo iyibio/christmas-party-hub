@@ -12,12 +12,11 @@
     <!-- Firebase Imports -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         
         // --- Global Firebase Setup ---
         const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         const app = initializeApp(firebaseConfig);
@@ -42,7 +41,7 @@
                 window.userId = userId;
                 window.isAuthReady = true;
                 
-                // Once authenticated, start the application logic (data loading/listening)
+                // Once authenticated, start the application logic
                 if (typeof window.startApp === 'function') {
                     window.startApp();
                 }
@@ -465,6 +464,13 @@
         
         // --- Core Application Start ---
         window.startApp = function() {
+            // Check if Firebase essentials are globally available
+            if (!window.db || !window.doc || !window.onSnapshot) {
+                console.error("Firebase essentials not fully loaded. Retrying start...");
+                setTimeout(window.startApp, 200);
+                return;
+            }
+
             document.getElementById('loadingOverlay').classList.add('hidden');
             document.getElementById('currentUserId').textContent = window.userId || 'N/A';
             
@@ -478,7 +484,8 @@
         function getStatusDocRef() {
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             const publicPath = `/artifacts/${appId}/public/data/${COLLECTION_NAME}/${DOCUMENT_ID}`;
-            return window.doc(window.db, publicPath);
+            // Use the globally exposed functions without the `window` prefix, relying on global scope
+            return doc(db, publicPath);
         }
 
         function startDataListener() {
@@ -487,7 +494,7 @@
             const docRef = getStatusDocRef();
             
             // Use onSnapshot for real-time updates
-            window.onSnapshot(docRef, (docSnap) => {
+            onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
                     
@@ -498,7 +505,7 @@
                 } else {
                     // Document doesn't exist, initialize it with default state
                     console.log("Initializing Firestore document with default state.");
-                    window.setDoc(docRef, DEFAULT_STATE).catch(e => console.error("Error setting default doc:", e));
+                    setDoc(docRef, DEFAULT_STATE).catch(e => console.error("Error setting default doc:", e));
                 }
                 updateChartsAndUI();
             }, (error) => {
@@ -522,13 +529,9 @@
             };
             
             try {
-                await window.setDoc(statusDocRef, updatePayload, { merge: true });
+                await setDoc(statusDocRef, updatePayload, { merge: true });
             } catch (error) {
                 console.error("Error updating Firestore:", error);
-                // Fallback: If network fails, update local state temporarily for user experience
-                appState.foodCounts = newCounts;
-                appState.totalGuests = newTotalGuests;
-                updateChartsAndUI(); 
             }
         }
         
@@ -644,8 +647,8 @@
                 const dishTypeEl = document.querySelector('input[name="dish"]:checked');
                 
                 if(!dishTypeEl) {
-                    // Custom modal/message box instead of alert
-                    alert("Please select a dish category!");
+                    // This is where a custom modal/message box would be
+                    console.warn("Please select a dish category!");
                     return;
                 }
 
